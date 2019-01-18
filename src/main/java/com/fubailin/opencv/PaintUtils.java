@@ -30,7 +30,7 @@ public class PaintUtils {
 
             Rect r = rect.boundingRect();
 
-            System.out.println(r.area() + " --- " + i);
+            //System.out.println(r.area() + " --- " + i);
 
             rectMat = paintRect(rectMat, r, scalar);
 

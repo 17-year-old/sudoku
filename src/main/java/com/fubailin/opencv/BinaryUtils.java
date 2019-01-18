@@ -29,7 +29,7 @@ public class BinaryUtils {
      */
     public static Mat binaryzation(Mat src) {
         if (src.channels() != 1) {
-            throw new RuntimeException("不是单通道图，需要先灰度话！！！");
+            throw new RuntimeException("不是单通道图，需要先灰度化！！！");
         }
         int threshold = getAdapThreshold(src);
         return binaryzation(src, threshold);

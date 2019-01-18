@@ -128,7 +128,7 @@ public class GeneralUtils {
      */
     public static Mat turnPixel(Mat src) {
         if (src.channels() != 1) {
-            throw new RuntimeException("不是单通道图，需要先灰度话！！！");
+            throw new RuntimeException("不是单通道图，需要先灰度化！！！");
         }
         int j, i, value;
         int width = getImgWidth(src), height = getImgHeight(src);
