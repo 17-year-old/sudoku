@@ -4,7 +4,7 @@ import java.util.List;
 
 public class SolveSudoku {
     public static void main(String[] args) {
-        int[][] data = ScanSudoku.scanSudoku("D:\\work\\sudoku\\src\\main\\resources\\sudoku.png");
+        int[][] data = ScanSudoku.scanSudoku("D:\\work\\sudoku\\src\\main\\resources\\sudoku1.png");
         for (int x = 0; x < 9; x++) {
             for (int y = 0; y < 9; y++) {
                 System.out.print(data[x][y]);

@@ -80,6 +80,18 @@ public class Sudoku {
         }
     }
 
+    private static int count() {
+        int i = 0;
+        for (int x = 0; x < 9; x++) {
+            for (int y = 0; y < 9; y++) {
+                if(sudoku[x][y] >0 ) {
+                    i++;
+                }
+            }
+        }
+        return i;
+    }
+
     public static List<Object> solve() {
         solve(0, 0);
         return out;
@@ -93,6 +105,10 @@ public class Sudoku {
 
     public static List<Object> solve(int[][] data) {
         setSudokuData(data);
+        if(count() <17){
+            System.out.println("题目提供的数字太少！");
+            return out;
+        }
         solve();
         return out;
     }
