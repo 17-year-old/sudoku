@@ -3,24 +3,54 @@ package com.fubailin;
 import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
+import org.opencv.ml.KNearest;
+import org.opencv.ml.Ml;
+import org.opencv.utils.Converters;
 
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
 public class ScanSudoku {
-    public static void main(String[] args) {
+    private static Mat[][] samples;
+    private static KNearest knn;
+    private static String path = "D:\\work\\sudoku\\src\\main\\resources\\";
+
+    static {
         System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
-        String path = "C:\\Work\\src\\sudoku\\src\\main\\resources\\";
+        samples = makeSamples();
+        knn = KNearest.create();
+        train();
+    }
+
+    //扫描图片，返回sudoku的数组
+    public static int[][] scanSudoku(String img) {
         Mat src = Imgcodecs.imread(path + "sudoku.png");
         if (src.empty()) {
             System.out.println("加载图片出错!");
-            return;
+            return null;
         }
+
+        Mat[][] matData = getMatData(src);
+        int[][] data = new int[9][9];
+        for (int row = 0; row < 9; row++) {
+            for (int col = 0; col < 9; col++) {
+                if (getPiexSum(matData[row][col]) == 0) {
+                    continue;
+                }
+                data[row][col] = findNearest(matData[row][col]);
+            }
+        }
+        return data;
+    }
+
+    //处理图片
+    //将图片分割成9*9的Mat数组
+    private static Mat[][] getMatData(Mat src) {
         Mat gray = new Mat();
         //灰度处理
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY);
-
         //二值化
         Mat thresh = gray.clone();
         Mat temp = new Mat();
@@ -31,7 +61,6 @@ public class ScanSudoku {
         Mat horizontal = thresh.clone();
         //克隆一个 Mat，用于提取垂直线
         Mat vertical = thresh.clone();
-
         /*
          * 求水平线
          * 1. 根据页面的列数（可以理解为宽度），将页面化成若干的扫描区域
@@ -50,7 +79,6 @@ public class ScanSudoku {
         // iterations 最后一个参数，迭代次数，越多，线越多。在页面清晰的情况下1次即可。
         Imgproc.erode(horizontal, horizontal, horizontalStructure, new Point(-1, -1), 1);
         Imgproc.dilate(horizontal, horizontal, horizontalStructure, new Point(-1, -1), 1);
-
 
         /// 求垂直线
         int verticalsize = vertical.rows() / scale;
@@ -71,17 +99,13 @@ public class ScanSudoku {
         Mat hierarchy = new Mat();
         Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE, new Point(0, 0));
 
-
         List<MatOfPoint> contours_poly = contours;
         Rect[] boundRect = new Rect[contours.size()];
-
         LinkedList<Mat> tables = new LinkedList<Mat>();
         //循环所有找到的轮廓-点
         for (int i = 0; i < contours.size(); i++) {
-
             MatOfPoint point = contours.get(i);
             MatOfPoint contours_poly_point = contours_poly.get(i);
-
             /*
              * 获取区域的面积
              * 第一个参数，InputArray contour：输入的点，一般是图像的轮廓点
@@ -92,7 +116,6 @@ public class ScanSudoku {
             if (area < 100) {
                 continue;
             }
-
             /*
              * approxPolyDP 函数用来逼近区域成为一个形状，true值表示产生的区域为闭合区域。比如一个带点幅度的曲线，变成折线
              *
@@ -102,10 +125,8 @@ public class ScanSudoku {
              * bool closed：曲线是否闭合的标志位。
              */
             Imgproc.approxPolyDP(new MatOfPoint2f(point.toArray()), new MatOfPoint2f(contours_poly_point.toArray()), 3, true);
-
             //为将这片区域转化为矩形，此矩形包含输入的形状
             boundRect[i] = Imgproc.boundingRect(contours_poly.get(i));
-
             // 找到交汇处的的表区域对象
             Mat table_image = joints.submat(boundRect[i]);
 
@@ -115,11 +136,9 @@ public class ScanSudoku {
             //从表格的特性看，如果这片区域的点数小于4，那就代表没有一个完整的表格，忽略掉
             if (table_contours.size() < 4)
                 continue;
-
             //保存图片
             tables.addFirst(thresh.submat(boundRect[i]).clone());
             mask = mask.submat(boundRect[i]).clone();
-            Imgcodecs.imwrite(path + "mask.png", mask);
         }
 
         //有多个table的话,选择最大的table
@@ -133,11 +152,8 @@ public class ScanSudoku {
                 }
             }
         }
-        Imgcodecs.imwrite(path + "table.png", sudoku);
 
-        int[][] data = new int[9][9];
         Mat[][] mat_data = new Mat[9][9];
-
         int colwidth = sudoku.width() / 9;
         int rowheight = sudoku.height() / 9;
         for (int row = 0; row < 9; row++) {
@@ -146,38 +162,11 @@ public class ScanSudoku {
                 Mat t = sudoku.submat(r);
                 t = removeBlackEdge(t);
                 t = cut(t);
-                Imgproc.resize(t, t, new Size(16, 23), 0, 0, Imgproc.INTER_AREA);
+                Imgproc.resize(t, t, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
                 mat_data[row][col] = t;
             }
         }
-
-        Mat[] template = makeTemplate();
-        Mat diff = Mat.zeros(23, 16, 0);
-        for (int row = 0; row < 9; row++) {
-            for (int col = 0; col < 9; col++) {
-                data[row][col] = 0;
-                if (getPiexSum(mat_data[row][col]) == 0) {
-                    continue;
-                }
-                double min = Double.MAX_VALUE;
-                for (int i = 0; i < 10; i++) {
-                    Core.absdiff(template[i], mat_data[row][col], diff);
-                    double sum = getPiexSum(diff);
-                    if (sum < min) {
-                        min = sum;
-                        data[row][col] = i;
-                    }
-                }
-            }
-        }
-
-        System.out.println();
-        for (int row = 0; row < 9; row++) {
-            for (int col = 0; col < 9; col++) {
-                System.out.print(data[row][col] + " ");
-            }
-            System.out.println();
-        }
+        return mat_data;
     }
 
     //删除黑边,这里黑边是从表格线中截取出来的
@@ -247,22 +236,8 @@ public class ScanSudoku {
         return t.submat(r);
     }
 
-    //生成模板文件
-    public static Mat[] makeTemplate() {
-        Mat[] template = new Mat[10];
-        for (int i = 0; i <= 9; i++) {
-            Mat t = Mat.zeros(50, 50, 0);
-            Imgproc.putText(t, String.valueOf(i), new Point(5, 25), Imgproc.FONT_HERSHEY_COMPLEX, 1.0, new Scalar(255), 2, Imgproc.LINE_8, false);
-            t = cut(t);
-            Imgproc.resize(t, t, new Size(16, 23), 0, 0, Imgproc.INTER_AREA);
-            template[i] = t;
-            Imgcodecs.imwrite("C:\\Work\\src\\sudoku\\src\\main\\resources\\template\\" + i + ".png", t);
-        }
-        return template;
-    }
-
     //打印出二进制的mat
-    public static void printMat(Mat t) {
+    private static void printMat(Mat t) {
         System.out.println();
         for (int row = 0; row < t.height(); row++) {
             for (int col = 0; col < t.width(); col++) {
@@ -277,7 +252,7 @@ public class ScanSudoku {
     }
 
     //求图片的二进制和
-    public static double getPiexSum(Mat t) {
+    private static double getPiexSum(Mat t) {
         double sum = 0;
         for (int row = 0; row < t.height(); row++) {
             for (int col = 0; col < t.width(); col++) {
@@ -285,5 +260,54 @@ public class ScanSudoku {
             }
         }
         return sum;
+    }
+
+    //生成训练样本
+    private static Mat[][] makeSamples() {
+        samples = new Mat[10][16];
+        for (int i = 0; i <= 9; i++) {
+            for (int j = 0; j <= 7; j++) {
+                //不同的字体
+                Mat temp = Mat.zeros(50, 50, 0);
+                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j, 1.0, new Scalar(255), 2, Imgproc.LINE_8, false);
+                temp = cut(temp);
+                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                samples[i][j * 2] = temp;
+                Imgcodecs.imwrite("D:\\work\\sudoku\\src\\main\\resources\\samples\\" + i + "_" + (j * 2) + ".png", temp);
+
+                //对应的斜体
+                temp = Mat.zeros(50, 50, 0);
+                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + 16, 1.0, new Scalar(255), 2, Imgproc.LINE_8, false);
+                temp = cut(temp);
+                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                samples[i][j * 2 + 1] = temp;
+                Imgcodecs.imwrite("D:\\work\\sudoku\\src\\main\\resources\\samples\\" + i + "_" + (j * 2 + 1) + ".png", temp);
+            }
+        }
+        return samples;
+    }
+
+    //使用样本进行训练
+    private static void train() {
+        Mat trainData = new Mat();
+        List<Integer> trainLabs = new ArrayList<Integer>();
+        for (int i = 0; i < 10; i++) {
+            for (int j = 0; j < samples[i].length; j++) {
+                samples[i][j].convertTo(samples[i][j], CvType.CV_32F);
+                trainData.push_back(samples[i][j].reshape(1, 1));
+                trainLabs.add(i);
+            }
+        }
+        knn.train(trainData, Ml.ROW_SAMPLE, Converters.vector_int_to_Mat(trainLabs));
+    }
+
+    //对数据进行匹配
+    public static int findNearest(Mat feature) {
+        Mat res = new Mat();
+        Mat temp = feature;
+        feature.convertTo(temp, CvType.CV_32F);
+        temp = temp.reshape(1, 1);
+        float p = knn.findNearest(temp, 1, res);
+        return (int) p;
     }
 }

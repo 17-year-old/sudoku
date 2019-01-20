@@ -96,34 +96,4 @@ public class Sudoku {
         solve();
         return out;
     }
-
-    public static void main(String[] args) {
-        List<Object> retult = solve(new int[][]{
-                {0, 0, 4, 8, 0, 0, 0, 1, 0},
-                {8, 0, 0, 3, 0, 0, 0, 7, 0},
-                {0, 0, 1, 0, 0, 0, 0, 0, 0},
-                {0, 0, 7, 1, 0, 0, 0, 8, 0},
-                {6, 0, 0, 0, 0, 0, 0, 0, 2},
-                {0, 2, 0, 0, 0, 3, 6, 0, 0},
-                {0, 0, 0, 0, 0, 0, 9, 0, 0},
-                {0, 9, 0, 0, 0, 2, 0, 0, 6},
-                {0, 8, 0, 0, 0, 9, 3, 0, 0}
-        });
-
-        if (retult.isEmpty()) {
-            System.out.println("无解!");
-            return;
-        }
-        System.out.println("共有" + retult.size() + "解!");
-        for (int index = 0; index < retult.size(); index++) {
-            System.out.println("解" + (index + 1) + "!");
-            int[][] t = (int[][]) retult.get(index);
-            for (int x = 0; x < 9; x++) {
-                for (int y = 0; y < 9; y++) {
-                    System.out.print(t[x][y]);
-                }
-                System.out.println("");
-            }
-        }
-    }
 }
