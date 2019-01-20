@@ -4,7 +4,14 @@ import java.util.List;
 
 public class SolveSudoku {
     public static void main(String[] args) {
-        List<Object> retult = Sudoku.solve(ScanSudoku.scanSudoku("D:\\work\\sudoku\\src\\main\\resources\\sudoku.png"));
+        int[][] data = ScanSudoku.scanSudoku("D:\\work\\sudoku\\src\\main\\resources\\sudoku.png");
+        for (int x = 0; x < 9; x++) {
+            for (int y = 0; y < 9; y++) {
+                System.out.print(data[x][y]);
+            }
+            System.out.println("");
+        }
+        List<Object> retult = Sudoku.solve(data);
         if (retult.isEmpty()) {
             System.out.println("无解!");
             return;
