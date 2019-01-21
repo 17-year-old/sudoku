@@ -7,15 +7,13 @@ import org.opencv.ml.KNearest;
 import org.opencv.ml.Ml;
 import org.opencv.utils.Converters;
 
-import java.text.DecimalFormat;
 import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
 
 public class ScanSudoku {
     private static Mat[][] samples;
     private static KNearest knn;
-    private static String path = "D:\\work\\sudoku\\src\\main\\resources\\";
+    private static String path = "C:\\work\\src\\sudoku\\src\\main\\resources\\";
 
     static {
         System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
@@ -46,18 +44,17 @@ public class ScanSudoku {
     }
 
     //处理图片
-    //先查找定位出表格位置
-    //将图片分割成9*9的Mat数组
     private static Mat[][] getMatData(Mat src) {
         Mat gray = new Mat();
         //灰度处理
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_BGR2GRAY);
+        Imgcodecs.imwrite("c:\\work\\src\\sudoku\\src\\main\\resources\\gray.png", gray);
         //二值化
-        Mat thresh = gray.clone();
+        Mat thresh = new Mat();
         Mat temp = new Mat();
         Core.bitwise_not(gray, temp);
         Imgproc.adaptiveThreshold(temp, thresh, 255, Imgproc.ADAPTIVE_THRESH_MEAN_C, Imgproc.THRESH_BINARY, 15, -2);
-        //Imgcodecs.imwrite("D:\\work\\sudoku\\src\\main\\resources\\thresh.png", thresh);
+        Imgcodecs.imwrite("c:\\work\\src\\sudoku\\src\\main\\resources\\thresh.png", thresh);
 
         //找轮廓
         //Imgproc.RETR_TREE表示找到所有的轮廓，不只是顶级轮廓
@@ -72,31 +69,44 @@ public class ScanSudoku {
         //循环所有找到的轮廓-点
         List<MatOfPoint> contours_poly = contours;
 
+        //这里是找到比较大的表格(大于图片面积的1/4)即认为是sudoku表格
+        //可以修改成找面积最大的轮廓要更准确点
         int tableArea = thresh.width() * thresh.height();
         int datacell = -1;
+        Rect tableRect = null;
+        int cellWidth = 0;
+        int cellHeight = 0;
         for (int i = 0; i < contours.size(); i++) {
             MatOfPoint point = contours.get(i);
-            MatOfPoint contours_poly_point = contours_poly.get(i);
-            double area = Imgproc.contourArea(contours.get(i));
+            double area = Imgproc.contourArea(point);
             //如果小于某个值就忽略，代表是杂线不是表格
-            if (area < 100) {
+            if (area < 150) {
                 continue;
             }
+
+            //面积大于整个图片的1/4, 顶级轮廓, 且包含下级轮廓的, 即认为是表格
+            //这里取的是表格的子轮廓
             if (((int) hierarchy.get(0, i)[3] == -1) && (hierarchy.get(0, i)[2] > 0)) {
                 if (area > tableArea / 4) {
-                    datacell = (int) hierarchy.get(0, i)[2];//这里取的是表格的子轮廓
+                    datacell = (int) hierarchy.get(0, i)[2];
+                    //计算表格大小和单元格大小
+                    MatOfPoint contours_poly_point = contours_poly.get(i);
+                    Imgproc.approxPolyDP(new MatOfPoint2f(point.toArray()), new MatOfPoint2f(contours_poly_point.toArray()), 3, true);
+                    tableRect = Imgproc.boundingRect(contours_poly_point);
+                    cellWidth = tableRect.width / 9;
+                    cellHeight = tableRect.height / 9;
                     break;
                 }
             }
         }
 
         Mat[][] mat_data = new Mat[9][9];
-        int i = 80, j = 0;
         while (datacell > 0) {
-            int row = i / 9;
-            int col = i % 9;
             int child = (int) hierarchy.get(0, datacell)[2];
-            if (child > 0) {//某个单元格的子轮廓为空，说明这个单元个为空
+            //某个单元格的子轮廓为空，说明这个单元个为空
+            //子轮廓不为空,则子轮廓即使需要找的数字
+            //没考虑子轮廓更复杂的情况
+            if (child > 0) {
                 MatOfPoint point = contours.get(child);
                 MatOfPoint contours_poly_point = contours_poly.get(child);
                 /*
@@ -109,19 +119,18 @@ public class ScanSudoku {
                  */
                 Imgproc.approxPolyDP(new MatOfPoint2f(point.toArray()), new MatOfPoint2f(contours_poly_point.toArray()), 3, true);
                 //为将这片区域转化为矩形，此矩形包含输入的形状
-                Rect boundRect = Imgproc.boundingRect(contours_poly_point);
-                temp = thresh.submat(boundRect);
+                Rect cellRect = Imgproc.boundingRect(contours_poly_point);
+                temp = thresh.submat(cellRect);
                 Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
-                Imgcodecs.imwrite("D:\\work\\sudoku\\src\\main\\resources\\cell" + j++ + ".png", temp);
+                //子轮廓不完全按照顺序排列
+                //所以这里要根据坐标计算实际的未知
+                int col = (cellRect.x - tableRect.x) / cellWidth;
+                int row = (cellRect.y - tableRect.y) / cellHeight;
                 mat_data[row][col] = temp;
             }
-            //忽略面积小的单元格
-            double area = Imgproc.contourArea(contours.get(datacell));
+
             //转到下一个轮廓, 轮廓的顺序
             datacell = (int) hierarchy.get(0, datacell)[0];
-            if (area > 100) {
-                i--;
-            }
         }
         return mat_data;
     }
@@ -143,46 +152,52 @@ public class ScanSudoku {
 
     //生成训练样本
     private static Mat[][] makeSamples() {
-        samples = new Mat[10][48];
+        samples = new Mat[10][96];
         for (int i = 0; i <= 9; i++) {
             for (int j = 0; j <= 7; j++) { //不同的字体
-                //
-                Mat temp = Mat.zeros(50, 50, 0);
-                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j, 1.0, new Scalar(255), 2, Imgproc.LINE_4, false);
-                temp = cut(temp);
-                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
-                samples[i][j * 6] = temp;
+                for (int k = 0; k <= 1; k++) {//k=0对应正常字体,k=1为斜体
+                    //线条宽度1, 线型LINE_4
+                    Mat temp = Mat.zeros(50, 50, 0);
+                    Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + (k * 16), 1.0, new Scalar(255), 1, Imgproc.LINE_4, false);
+                    temp = cut(temp);
+                    Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                    samples[i][j * 12 + k * 6] = temp;
 
-                temp = Mat.zeros(50, 50, 0);
-                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j, 1.0, new Scalar(255), 2, Imgproc.LINE_8, false);
-                temp = cut(temp);
-                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
-                samples[i][j * 6 + 1] = temp;
+                    //线条宽度2, 线型LINE_4
+                    temp = Mat.zeros(50, 50, 0);
+                    Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + (k * 16), 1.0, new Scalar(255), 2, Imgproc.LINE_4, false);
+                    temp = cut(temp);
+                    Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                    samples[i][j * 12 + k * 6 + 1] = temp;
 
-                temp = Mat.zeros(50, 50, 0);
-                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j, 1.0, new Scalar(255), 2, Imgproc.LINE_AA, false);
-                temp = cut(temp);
-                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
-                samples[i][j * 6 + 2] = temp;
+                    //线条宽度3, 线型LINE_4
+                    temp = Mat.zeros(50, 50, 0);
+                    Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + (k * 16), 1.0, new Scalar(255), 3, Imgproc.LINE_4, false);
+                    temp = cut(temp);
+                    Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                    samples[i][j * 12 + k * 6 + 2] = temp;
 
-                //对应的斜体
-                temp = Mat.zeros(50, 50, 0);
-                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + 16, 1.0, new Scalar(255), 2, Imgproc.LINE_4, false);
-                temp = cut(temp);
-                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
-                samples[i][j * 6 + 3] = temp;
+                    //线条宽度1, 线型LINE_8
+                    temp = Mat.zeros(50, 50, 0);
+                    Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + (k * 16), 1.0, new Scalar(255), 1, Imgproc.LINE_8, false);
+                    temp = cut(temp);
+                    Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                    samples[i][j * 12 + k * 6 + 3] = temp;
 
-                temp = Mat.zeros(50, 50, 0);
-                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + 16, 1.0, new Scalar(255), 2, Imgproc.LINE_8, false);
-                temp = cut(temp);
-                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
-                samples[i][j * 6 + 4] = temp;
+                    //线条宽度2, 线型LINE_8
+                    temp = Mat.zeros(50, 50, 0);
+                    Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + (k * 16), 1.0, new Scalar(255), 2, Imgproc.LINE_8, false);
+                    temp = cut(temp);
+                    Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                    samples[i][j * 12 + k * 6 + 4] = temp;
 
-                temp = Mat.zeros(50, 50, 0);
-                Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + 16, 1.0, new Scalar(255), 2, Imgproc.LINE_AA, false);
-                temp = cut(temp);
-                Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
-                samples[i][j * 6 + 5] = temp;
+                    //线条宽度3, 线型LINE_8
+                    temp = Mat.zeros(50, 50, 0);
+                    Imgproc.putText(temp, String.valueOf(i), new Point(5, 25), j + (k * 16), 1.0, new Scalar(255), 3, Imgproc.LINE_8, false);
+                    temp = cut(temp);
+                    Imgproc.resize(temp, temp, new Size(32, 32), 0, 0, Imgproc.INTER_AREA);
+                    samples[i][j * 12 + k * 6 + 5] = temp;
+                }
             }
         }
         return samples;
